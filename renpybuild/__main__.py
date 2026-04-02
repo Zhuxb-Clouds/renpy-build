@@ -3,6 +3,7 @@
 import sys
 import argparse
 import shutil
+import datetime
 from pathlib import Path
 
 import renpybuild.task
@@ -45,6 +46,69 @@ Platform("ios", "sim-x86_64", "3")
 Platform("ios", "sim-arm64", "3")
 
 Platform("web", "wasm", "3")
+
+
+def package_outputs(args):
+
+    if not args.package:
+        return
+
+    if args.no_package:
+        return
+
+    def progress(step: int, total: int, message: str):
+        print(f"[package {step}/{total}] {message}", flush=True)
+
+    tmp = root / "tmp"
+    install_dirs = [p for p in sorted(tmp.glob("install.*")) if p.is_dir()]
+    total_steps = 4 + len(install_dirs)
+    step = 1
+    renpy_copy_ignore = shutil.ignore_patterns(
+        ".git",
+        "__pycache__",
+        "*.pyc",
+        "*.pyo",
+        ".pytest_cache",
+        ".mypy_cache",
+    )
+
+    progress(step, total_steps, "Preparing package directories")
+    package_root = Path(args.package_dir).resolve() if args.package_dir else (root / "tmp" / "packages")
+    package_root.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    bundle_name = f"build-{timestamp}"
+    bundle_dir = package_root / bundle_name
+
+    if bundle_dir.exists():
+        shutil.rmtree(bundle_dir)
+
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+
+    step += 1
+    progress(step, total_steps, "Copying Ren'Py source tree")
+    renpy_src = root / "renpy"
+    renpy_dest = bundle_dir / "renpy"
+    if renpy_src.exists():
+        shutil.copytree(renpy_src, renpy_dest, dirs_exist_ok=True, ignore=renpy_copy_ignore)
+
+    step += 1
+    progress(step, total_steps, "Preparing artifacts directory")
+    artifacts_dir = bundle_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    for p in install_dirs:
+        step += 1
+        progress(step, total_steps, f"Copying artifact: {p.name}")
+        shutil.copytree(p, artifacts_dir / p.name, dirs_exist_ok=True)
+
+    step += 1
+    progress(step, total_steps, "Creating compressed archive")
+    archive_base = str(package_root / bundle_name)
+    archive_path = shutil.make_archive(archive_base, "gztar", root_dir=package_root, base_dir=bundle_name)
+
+    print(f"Packaged build outputs to: {bundle_dir}")
+    print(f"Archive created at: {archive_path}")
 
 def build(args):
 
@@ -108,6 +172,8 @@ def build(args):
 
     print("")
     print("Build finished successfully.")
+
+    package_outputs(args)
 
 
 def remove_complete(args):
@@ -182,6 +248,9 @@ def main():
     ap.add_argument("--sdl", action="store_true", default=False, help="Do not clean SDL on rebuild.")
 
     ap.add_argument("--experimental", action="store_true", default=False)
+    ap.add_argument("--package", action="store_true", default=False, help="Create a post-build package bundle.")
+    ap.add_argument("--package-dir", default="", help="Directory used to store post-build bundles. Defaults to tmp/packages.")
+    ap.add_argument("--no-package", action="store_true", default=False, help="Disable automatic packaging after build.")
 
     ap.add_argument("--stop", default=None, help="Stop after this task.")
 

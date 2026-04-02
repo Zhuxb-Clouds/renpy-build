@@ -159,6 +159,19 @@ def build(c: Context):
         --enable-parser=vp9
         --enable-parser=av1
 
+        --enable-filter=pan
+        --enable-filter=volume
+        --enable-filter=equalizer
+        --enable-filter=superequalizer
+        --enable-filter=aecho
+        --enable-filter=afir
+
+        --enable-protocol=file
+
+        --enable-muxer=wav
+
+        --enable-encoder=pcm_s16le
+
         --disable-iconv
         --disable-alsa
         --disable-libxcb
@@ -253,6 +266,19 @@ def build_web(c: Context):
         --enable-decoder=pcm_u8
         --enable-decoder=vorbis
         --enable-decoder=opus
+
+        --enable-filter=pan
+        --enable-filter=volume
+        --enable-filter=equalizer
+        --enable-filter=superequalizer
+        --enable-filter=aecho
+        --enable-filter=afir
+
+        --enable-protocol=file
+
+        --enable-muxer=wav
+
+        --enable-encoder=pcm_s16le
 
         --disable-iconv
         --disable-alsa
