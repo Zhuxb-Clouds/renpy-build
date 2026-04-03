@@ -183,6 +183,7 @@ iossupport
 six
 
 requests/
+ecdsa/
 rsa/
 pyasn1/
 urllib3/

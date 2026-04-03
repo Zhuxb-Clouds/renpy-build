@@ -48,6 +48,109 @@ Platform("ios", "sim-arm64", "3")
 Platform("web", "wasm", "3")
 
 
+PACKAGE_PLATFORMS = {"linux", "windows"}
+COMMON_RENPY_IGNORES = shutil.ignore_patterns(
+    ".git",
+    "__pycache__",
+    "*.pyo",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".venv",
+    ".vscode",
+)
+
+
+def iter_package_targets(args):
+
+    platforms = set(i.strip() for i in args.platforms.split(",") if i)
+    archs = set(i.strip() for i in args.archs.split(",") if i)
+    pythons = set(i.strip() for i in args.pythons.split(",") if i)
+
+    rv = [ ]
+
+    for platform in known_platforms:
+        if platform.platform not in PACKAGE_PLATFORMS:
+            continue
+
+        if platforms and (platform.platform not in platforms):
+            continue
+
+        if archs and (platform.arch not in archs):
+            continue
+
+        if pythons and (platform.python not in pythons):
+            continue
+
+        rv.append(platform)
+
+    return rv
+
+
+def runtime_dir_name(platform: Platform):
+    return f"py{platform.python}-{platform.platform}-{platform.arch}"
+
+
+def platform_lib_dir_name(platform: Platform):
+    return f"{platform.platform}-{platform.arch}"
+
+
+def archive_name(target: Platform):
+    if target.platform == "linux" and target.arch == "x86_64":
+        return "renpy-linux"
+
+    if target.platform == "windows" and target.arch == "x86_64":
+        return "renpy-windows"
+
+    return f"renpy-{target.platform}-{target.arch}"
+
+
+def make_renpy_copy_ignore(renpy_src: Path, target: Platform):
+
+    runtime_dirs = { runtime_dir_name(i) for i in known_platforms if i.platform in PACKAGE_PLATFORMS }
+    platform_dirs = { platform_lib_dir_name(i) for i in known_platforms if i.platform in PACKAGE_PLATFORMS }
+
+    keep_runtime_dir = runtime_dir_name(target)
+    keep_platform_dir = platform_lib_dir_name(target)
+
+    if target.platform == "windows":
+        blocked_top_level = {
+            "renpy.sh",
+            "renpy3.sh",
+            "run.sh",
+        }
+    else:
+        blocked_top_level = {
+            "7z.sfx",
+            "renpy.exe",
+            "renpy3.exe",
+        }
+
+    def ignore(path, names):
+        ignored = set(COMMON_RENPY_IGNORES(path, names))
+
+        current = Path(path)
+
+        try:
+            relative = current.relative_to(renpy_src)
+        except ValueError:
+            return ignored
+
+        if relative == Path("."):
+            ignored.update(name for name in names if name in blocked_top_level)
+
+        if relative == Path("lib"):
+            for name in names:
+                if (name in runtime_dirs) and (name != keep_runtime_dir):
+                    ignored.add(name)
+
+                if (name in platform_dirs) and (name != keep_platform_dir):
+                    ignored.add(name)
+
+        return ignored
+
+    return ignore
+
+
 def package_outputs(args):
 
     if not args.package:
@@ -56,59 +159,54 @@ def package_outputs(args):
     if args.no_package:
         return
 
-    def progress(step: int, total: int, message: str):
-        print(f"[package {step}/{total}] {message}", flush=True)
-
-    tmp = root / "tmp"
-    install_dirs = [p for p in sorted(tmp.glob("install.*")) if p.is_dir()]
-    total_steps = 4 + len(install_dirs)
-    step = 1
-    renpy_copy_ignore = shutil.ignore_patterns(
-        ".git",
-        "__pycache__",
-        "*.pyc",
-        "*.pyo",
-        ".pytest_cache",
-        ".mypy_cache",
-    )
-
-    progress(step, total_steps, "Preparing package directories")
     package_root = Path(args.package_dir).resolve() if args.package_dir else (root / "tmp" / "packages")
     package_root.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    bundle_name = f"build-{timestamp}"
-    bundle_dir = package_root / bundle_name
-
-    if bundle_dir.exists():
-        shutil.rmtree(bundle_dir)
-
-    bundle_dir.mkdir(parents=True, exist_ok=True)
-
-    step += 1
-    progress(step, total_steps, "Copying Ren'Py source tree")
     renpy_src = root / "renpy"
-    renpy_dest = bundle_dir / "renpy"
-    if renpy_src.exists():
-        shutil.copytree(renpy_src, renpy_dest, dirs_exist_ok=True, ignore=renpy_copy_ignore)
+    targets = iter_package_targets(args)
 
-    step += 1
-    progress(step, total_steps, "Preparing artifacts directory")
-    artifacts_dir = bundle_dir / "artifacts"
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    if not targets:
+        print("No package targets selected.")
+        return
 
-    for p in install_dirs:
-        step += 1
-        progress(step, total_steps, f"Copying artifact: {p.name}")
-        shutil.copytree(p, artifacts_dir / p.name, dirs_exist_ok=True)
+    total_targets = len(targets)
 
-    step += 1
-    progress(step, total_steps, "Creating compressed archive")
-    archive_base = str(package_root / bundle_name)
-    archive_path = shutil.make_archive(archive_base, "gztar", root_dir=package_root, base_dir=bundle_name)
+    for target_index, target in enumerate(targets, start=1):
 
-    print(f"Packaged build outputs to: {bundle_dir}")
-    print(f"Archive created at: {archive_path}")
+        runtime_dir = renpy_src / "lib" / runtime_dir_name(target)
+
+        if not runtime_dir.exists():
+            print(
+                f"[package {target_index}/{total_targets}] Skipping {target.platform}-{target.arch}: "
+                f"missing runtime {runtime_dir.relative_to(root)}",
+                flush=True,
+            )
+            continue
+
+        bundle_name = f"renpy-{target.platform}-{target.arch}-{timestamp}"
+        bundle_dir = package_root / bundle_name
+
+        if bundle_dir.exists():
+            shutil.rmtree(bundle_dir)
+
+        print(f"[package {target_index}/{total_targets}] Packaging {target.platform}-{target.arch}", flush=True)
+
+        renpy_dest = bundle_dir / "renpy"
+
+        print(f"[package {target_index}/{total_targets}] Copying Ren'Py tree", flush=True)
+        shutil.copytree(
+            renpy_src,
+            renpy_dest,
+            ignore=make_renpy_copy_ignore(renpy_src, target),
+        )
+
+        print(f"[package {target_index}/{total_targets}] Creating compressed archive", flush=True)
+        archive_base = str(package_root / archive_name(target))
+        archive_path = shutil.make_archive(archive_base, "gztar", root_dir=bundle_dir, base_dir="renpy")
+
+        print(f"Packaged build outputs to: {bundle_dir}")
+        print(f"Archive created at: {archive_path}")
 
 def build(args):
 

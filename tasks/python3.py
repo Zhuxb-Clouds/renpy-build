@@ -235,12 +235,13 @@ def build_web(c: Context):
             "{{ host }}/lib/{{pythonver}}/{{ i }}",
             "{{ install }}/lib/{{pythonver}}/{{ i }}")
 
-@task(kind="python", pythons="3", platforms="all")
+@task(kind="python", pythons="3", platforms="all", always=True)
 def pip(c: Context):
     c.run("{{ install }}/bin/hostpython3 -s -m ensurepip")
     c.run("""{{ install }}/bin/hostpython3 -s -m pip install --no-compile --upgrade
         future==1.0.0
         six==1.16.0
+        ecdsa==0.19.1
         rsa==4.9
         pyasn1==0.6.1
         urllib3==2.6.3
