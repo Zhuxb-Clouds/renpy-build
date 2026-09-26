@@ -68,7 +68,9 @@ echo "[1/5] Building runtimes for platforms: $PLATFORMS"
 
 echo "[2/5] Packing build outputs into $(basename "$PACKAGE_FILE")"
 rm -f "$PACKAGE_FILE"
-tar --exclude="$ROOT/renpy/.git" --exclude="$ROOT/renpy/.venv" --exclude="$ROOT/renpy/.vscode" -C "$ROOT" -czf "$PACKAGE_FILE" renpy
+# Exclude patterns must match the member names as stored in the archive
+# (relative to -C "$ROOT"): renpy/.git, renpy/.venv, renpy/.vscode.
+tar --exclude="renpy/.git" --exclude="renpy/.venv" --exclude="renpy/.vscode" -C "$ROOT" -czf "$PACKAGE_FILE" renpy
 
 if [[ ! -f "$PACKAGE_FILE" ]]; then
     echo "Failed to create archive: $PACKAGE_FILE" >&2
