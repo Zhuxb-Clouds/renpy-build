@@ -7,6 +7,26 @@ import requests
 mingw_version = "20241217-ucrt-ubuntu-20.04-x86_64"
 
 
+def mac_sdk_archive(c: Context):
+    for name in ("MacOSX12.3.sdk.tar.bz2", "MacOSX12.3.sdk.tar.xz"):
+        archive = c.path("{{ tars }}/" + name)
+
+        if archive.exists():
+            return archive
+
+    raise RuntimeError("Missing mac SDK archive in tars/: expected MacOSX12.3.sdk.tar.bz2 or MacOSX12.3.sdk.tar.xz")
+
+
+def mac_sdk_directory(c: Context):
+    for name in ("MacOSX.sdk", "MacOSX12.3.sdk"):
+        sdk_dir = c.path("{{ cross }}/" + name)
+
+        if sdk_dir.exists():
+            return name
+
+    raise RuntimeError("mac SDK archive extracted, but no MacOSX.sdk or MacOSX12.3.sdk directory was found")
+
+
 @task(kind="cross", platforms="windows")
 def download(c: Context):
 
@@ -58,8 +78,8 @@ def build(c: Context):
     c.clean("{{ cross }}")
     c.chdir("{{ cross }}")
 
-    c.run("tar xaf {{ tars }}/MacOSX12.3.sdk.tar.bz2")
-    c.run("ln -s MacOSX.sdk sdk")
+    c.run(f"tar xaf {mac_sdk_archive(c)}")
+    c.run(f"ln -s {mac_sdk_directory(c)} sdk")
 
 
 @task(kind="cross", platforms="ios", archs="armv7s,arm64")

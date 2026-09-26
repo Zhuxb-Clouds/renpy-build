@@ -1,6 +1,26 @@
 from renpybuild.context import Context
 from renpybuild.task import task
+from pathlib import Path
 import zipfile
+
+
+def latest_steam_sdk_archive(c: Context):
+
+    candidates = list(Path(str(c.path("{{ tars }}"))).glob("steamworks_sdk_*.zip"))
+
+    if not candidates:
+        return None
+
+    def version_key(path: Path):
+        stem = path.stem
+        version = stem.rsplit("_", 1)[-1]
+
+        try:
+            return int(version)
+        except ValueError:
+            return -1
+
+    return max(candidates, key=version_key)
 
 
 @task(kind="host", platforms="all")
@@ -8,10 +28,12 @@ def unpack_sdk(c: Context):
 
     c.clean("{{ install }}/steam")
 
-    if not c.path("{{ tars }}/steamworks_sdk_162.zip").exists():
+    sdk_archive = latest_steam_sdk_archive(c)
+
+    if sdk_archive is None:
         return
 
-    zf = zipfile.ZipFile(c.path("{{ tars }}/steamworks_sdk_162.zip"))
+    zf = zipfile.ZipFile(sdk_archive)
     zf.extractall(c.path("{{ install }}/steam"))
     zf.close()
 

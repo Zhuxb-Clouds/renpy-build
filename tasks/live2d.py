@@ -5,7 +5,7 @@ from renpybuild.task import task, annotator
 @annotator
 def annotate(c: Context):
     c.include("{{ install }}/cubism/Core/include")
-    c.env("CUBISM", "{{ install }}/cubism")
+    if c.path("{{ tars }}/CubismSdkForNative-4-r.6.2.zip").exists(): c.env("CUBISM", "{{ install }}/cubism")
 
 
 @task(platforms="all")
@@ -17,10 +17,10 @@ def build(c: Context):
 
     c.var("live2d", c.path("{{ root }}/live2d"))
 
-    if not c.path("{{ tars }}/{{ cubism_zip }}").exists():
-        return
-
-    c.run("unzip -q {{ tars }}/{{ cubism_zip }}")
-
     c.rmtree("{{ install }}/cubism")
-    c.run("mv {{cubism_dir}} {{ install }}/cubism")
+
+    if c.path("{{ tars }}/{{ cubism_zip }}").exists():
+        c.run("unzip -q {{ tars }}/{{ cubism_zip }}")
+        c.run("mv {{cubism_dir}} {{ install }}/cubism")
+    else:
+        c.run("cp -a {{ root }}/live2d {{ install }}/cubism")

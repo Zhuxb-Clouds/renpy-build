@@ -4,6 +4,7 @@ import sys
 import argparse
 import shutil
 import datetime
+import zipfile
 from pathlib import Path
 
 import renpybuild.task
@@ -27,6 +28,14 @@ class Platform:
         known_platforms.append(self)
 
 
+class PackageTarget:
+
+    def __init__(self, platform, arch, python):
+        self.platform = platform
+        self.arch = arch
+        self.python = python
+
+
 # Python 3
 
 Platform("linux", "x86_64", "3")
@@ -48,7 +57,6 @@ Platform("ios", "sim-arm64", "3")
 Platform("web", "wasm", "3")
 
 
-PACKAGE_PLATFORMS = {"linux", "windows"}
 COMMON_RENPY_IGNORES = shutil.ignore_patterns(
     ".git",
     "__pycache__",
@@ -69,9 +77,6 @@ def iter_package_targets(args):
     rv = [ ]
 
     for platform in known_platforms:
-        if platform.platform not in PACKAGE_PLATFORMS:
-            continue
-
         if platforms and (platform.platform not in platforms):
             continue
 
@@ -87,10 +92,16 @@ def iter_package_targets(args):
 
 
 def runtime_dir_name(platform: Platform):
+    if platform.platform == "mac":
+        return f"py{platform.python}-{platform.platform}-universal"
+
     return f"py{platform.python}-{platform.platform}-{platform.arch}"
 
 
 def platform_lib_dir_name(platform: Platform):
+    if platform.platform == "mac":
+        return f"{platform.platform}-universal"
+
     return f"{platform.platform}-{platform.arch}"
 
 
@@ -104,26 +115,110 @@ def archive_name(target: Platform):
     return f"renpy-{target.platform}-{target.arch}"
 
 
+STEAM_SDK_MEMBERS = {
+    ("linux", "x86_64"): ("sdk/redistributable_bin/linux64/libsteam_api.so", "libsteam_api.so"),
+    ("windows", "x86_64"): ("sdk/redistributable_bin/win64/steam_api64.dll", "steam_api64.dll"),
+    ("mac", "x86_64"): ("sdk/redistributable_bin/osx/libsteam_api.dylib", "libsteam_api.dylib"),
+    ("mac", "arm64"): ("sdk/redistributable_bin/osx/libsteam_api.dylib", "libsteam_api.dylib"),
+    ("mac", "universal"): ("sdk/redistributable_bin/osx/libsteam_api.dylib", "libsteam_api.dylib"),
+}
+
+
+def latest_steam_sdk_archive():
+    candidates = list(root.glob("tars/steamworks_sdk_*.zip"))
+
+    if not candidates:
+        return None
+
+    def version_key(path: Path):
+        stem = path.stem
+        version = stem.rsplit("_", 1)[-1]
+
+        try:
+            return int(version)
+        except ValueError:
+            return -1
+
+    return max(candidates, key=version_key)
+
+
+def add_steam_support(target: Platform, renpy_dest: Path):
+    sdk_member = STEAM_SDK_MEMBERS.get((target.platform, target.arch))
+
+    if sdk_member is None:
+        return
+
+    sdk_archive = latest_steam_sdk_archive()
+
+    if sdk_archive is None:
+        print(f"No Steam SDK archive found for {target.platform}-{target.arch}; skipping Steam support.", flush=True)
+        return
+
+    runtime_dest = renpy_dest / "lib" / runtime_dir_name(target)
+
+    if not runtime_dest.exists():
+        print(f"Missing runtime directory {runtime_dir_name(target)}; skipping Steam support.", flush=True)
+        return
+
+    sdk_path, output_name = sdk_member
+
+    with zipfile.ZipFile(sdk_archive) as zf:
+        try:
+            with zf.open(sdk_path) as src, open(runtime_dest / output_name, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+        except KeyError:
+            print(f"Steam SDK archive {sdk_archive.name} is missing {sdk_path}; skipping Steam support.", flush=True)
+            return
+
+    steamapi_src = root / "steamapi" / "steamapi.py"
+    steamapi_dest = renpy_dest / "steamapi.py"
+
+    if steamapi_src.exists() and not steamapi_dest.exists():
+        shutil.copy2(steamapi_src, steamapi_dest)
+
+    print(f"Included Steam support from {sdk_archive.name}", flush=True)
+
+
 def make_renpy_copy_ignore(renpy_src: Path, target: Platform):
+    runtime_dirs = { runtime_dir_name(i) for i in known_platforms }
+    platform_dirs = { platform_lib_dir_name(i) for i in known_platforms }
 
-    runtime_dirs = { runtime_dir_name(i) for i in known_platforms if i.platform in PACKAGE_PLATFORMS }
-    platform_dirs = { platform_lib_dir_name(i) for i in known_platforms if i.platform in PACKAGE_PLATFORMS }
+    keep_runtime_dirs = { runtime_dir_name(target) }
+    keep_platform_dirs = { platform_lib_dir_name(target) }
 
-    keep_runtime_dir = runtime_dir_name(target)
-    keep_platform_dir = platform_lib_dir_name(target)
+    blocked_top_level = set()
 
     if target.platform == "windows":
-        blocked_top_level = {
+        blocked_top_level.update({
             "renpy.sh",
             "renpy3.sh",
             "run.sh",
-        }
+        })
     else:
-        blocked_top_level = {
+        blocked_top_level.update({
             "7z.sfx",
             "renpy.exe",
             "renpy3.exe",
-        }
+        })
+
+    return make_renpy_copy_ignore_for_dirs(
+        renpy_src,
+        runtime_dirs,
+        platform_dirs,
+        keep_runtime_dirs,
+        keep_platform_dirs,
+        blocked_top_level,
+    )
+
+
+def make_renpy_copy_ignore_for_dirs(
+    renpy_src: Path,
+    runtime_dirs,
+    platform_dirs,
+    keep_runtime_dirs,
+    keep_platform_dirs,
+    blocked_top_level,
+):
 
     def ignore(path, names):
         ignored = set(COMMON_RENPY_IGNORES(path, names))
@@ -140,10 +235,10 @@ def make_renpy_copy_ignore(renpy_src: Path, target: Platform):
 
         if relative == Path("lib"):
             for name in names:
-                if (name in runtime_dirs) and (name != keep_runtime_dir):
+                if (name in runtime_dirs) and (name not in keep_runtime_dirs):
                     ignored.add(name)
 
-                if (name in platform_dirs) and (name != keep_platform_dir):
+                if (name in platform_dirs) and (name not in keep_platform_dirs):
                     ignored.add(name)
 
         return ignored
@@ -164,6 +259,11 @@ def package_outputs(args):
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     renpy_src = root / "renpy"
+
+    if args.package_mode == "desktop":
+        package_desktop_outputs(args, package_root, timestamp, renpy_src)
+        return
+
     targets = iter_package_targets(args)
 
     if not targets:
@@ -201,12 +301,86 @@ def package_outputs(args):
             ignore=make_renpy_copy_ignore(renpy_src, target),
         )
 
+        add_steam_support(target, renpy_dest)
+
         print(f"[package {target_index}/{total_targets}] Creating compressed archive", flush=True)
         archive_base = str(package_root / archive_name(target))
         archive_path = shutil.make_archive(archive_base, "gztar", root_dir=bundle_dir, base_dir="renpy")
 
         print(f"Packaged build outputs to: {bundle_dir}")
         print(f"Archive created at: {archive_path}")
+
+
+def package_desktop_outputs(args, package_root: Path, timestamp: str, renpy_src: Path):
+
+    platforms = set(i.strip() for i in args.platforms.split(",") if i)
+    selected_platforms = [
+        i for i in ("linux", "windows", "mac")
+        if (not platforms) or (i in platforms)
+    ]
+
+    if not selected_platforms:
+        print("No desktop package targets selected.")
+        return
+
+    package_targets = {
+        "linux": PackageTarget("linux", "x86_64", "3"),
+        "windows": PackageTarget("windows", "x86_64", "3"),
+        "mac": PackageTarget("mac", "universal", "3"),
+    }
+
+    runtime_dirs = { runtime_dir_name(package_targets[i]) for i in selected_platforms }
+    platform_dirs = { platform_lib_dir_name(package_targets[i]) for i in selected_platforms }
+    missing_runtime_dirs = [ ]
+
+    for runtime_dir in runtime_dirs:
+        if not (renpy_src / "lib" / runtime_dir).exists():
+            missing_runtime_dirs.append(runtime_dir)
+
+    if missing_runtime_dirs:
+        print(
+            "Skipping desktop package: missing runtimes " + ", ".join(sorted(missing_runtime_dirs)),
+            flush=True,
+        )
+        return
+
+    package_name = args.package_name or f"renpy-{datetime.datetime.now().strftime('%Y%m%d')}"
+    bundle_name = f"{package_name}-{timestamp}"
+    bundle_dir = package_root / bundle_name
+
+    if bundle_dir.exists():
+        shutil.rmtree(bundle_dir)
+
+    print(
+        f"[package desktop] Packaging desktop runtimes for {', '.join(selected_platforms)}",
+        flush=True,
+    )
+
+    renpy_dest = bundle_dir / "renpy"
+
+    print("[package desktop] Copying Ren'Py tree", flush=True)
+    shutil.copytree(
+        renpy_src,
+        renpy_dest,
+        ignore=make_renpy_copy_ignore_for_dirs(
+            renpy_src,
+            { runtime_dir_name(i) for i in package_targets.values() },
+            { platform_lib_dir_name(i) for i in package_targets.values() },
+            runtime_dirs,
+            platform_dirs,
+            set(),
+        ),
+    )
+
+    for platform in selected_platforms:
+        add_steam_support(package_targets[platform], renpy_dest)
+
+    print("[package desktop] Creating compressed archive", flush=True)
+    archive_base = str(package_root / package_name)
+    archive_path = shutil.make_archive(archive_base, "gztar", root_dir=bundle_dir, base_dir="renpy")
+
+    print(f"Packaged build outputs to: {bundle_dir}")
+    print(f"Archive created at: {archive_path}")
 
 def build(args):
 
@@ -347,6 +521,8 @@ def main():
 
     ap.add_argument("--experimental", action="store_true", default=False)
     ap.add_argument("--package", action="store_true", default=False, help="Create a post-build package bundle.")
+    ap.add_argument("--package-mode", choices=["split", "desktop"], default="split", help="Choose whether packaging emits per-platform archives or a single unified desktop archive.")
+    ap.add_argument("--package-name", default="", help="Archive basename without extension. Used by desktop package mode and as an override when applicable.")
     ap.add_argument("--package-dir", default="", help="Directory used to store post-build bundles. Defaults to tmp/packages.")
     ap.add_argument("--no-package", action="store_true", default=False, help="Disable automatic packaging after build.")
 
