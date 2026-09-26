@@ -16,7 +16,12 @@ PLATFORMS="${PLATFORMS:-linux,windows,mac}"
 ARCHS="${ARCHS:-x86_64,arm64}"
 PYTHONS="${PYTHONS:-3}"
 PACKAGE_DIR="${PACKAGE_DIR:-${ROOT}/tmp/packages}"
-PACKAGE_NAME="${PACKAGE_NAME:-renpy-$(date +%Y%m%d)}"
+# Package name carries the engine version derived from the renpy checkout
+# (major.minor.patch), the studio tag, and the build date,
+# e.g. renpy-8.5.3-hrsrive-20260927.tar.gz.
+RENPY_VERSION="$(git -C "$ROOT/renpy" describe --tags 2>/dev/null | cut -d. -f1-3 || true)"
+STUDIO_TAG="${STUDIO_TAG:-hrsrive}"
+PACKAGE_NAME="${PACKAGE_NAME:-renpy-${RENPY_VERSION:-unknown}-${STUDIO_TAG}-$(date +%Y%m%d)}"
 PACKAGE_FILE="${PACKAGE_DIR}/${PACKAGE_NAME}.tar.gz"
 KEEP_PACKAGES="${KEEP_PACKAGES:-3}"
 SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
