@@ -14,6 +14,8 @@ PYTHONS="${PYTHONS:-3}"
 PACKAGE_DIR="${PACKAGE_DIR:-${ROOT}/tmp/packages}"
 PACKAGE_NAME="${PACKAGE_NAME:-renpy-$(date +%Y%m%d)}"
 PACKAGE_FILE="${PACKAGE_DIR}/${PACKAGE_NAME}.tar.gz"
+KEEP_PACKAGES="${KEEP_PACKAGES:-3}"
+SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
 
 has_csv_item() {
     local value="$1"
@@ -70,12 +72,18 @@ if [[ ! -f "$PACKAGE_FILE" ]]; then
 fi
 
 echo "[3/5] Preparing remote directory: ${REMOTE_USER}@${HOST}:${REMOTE_DIR}"
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${REMOTE_USER}@${HOST}" "mkdir -p '${REMOTE_DIR}'"
+ssh "${SSH_OPTS[@]}" "${REMOTE_USER}@${HOST}" "mkdir -p '${REMOTE_DIR}'"
 
-echo "[4/5] Uploading $(basename "$PACKAGE_FILE")"
-scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$PACKAGE_FILE" "${REMOTE_USER}@${HOST}:${REMOTE_DIR}/$(basename "$PACKAGE_FILE")"
+echo "[4/5] Uploading $(basename "$PACKAGE_FILE") (resumable rsync)"
+rsync --partial --times -e "ssh ${SSH_OPTS[*]}" "$PACKAGE_FILE" "${REMOTE_USER}@${HOST}:${REMOTE_DIR}/"
+
+echo "[4.5/5] Pruning old packages on remote (keeping newest ${KEEP_PACKAGES})"
+# No rsync --delete on purpose: REMOTE_DIR also holds the extracted renpy/ tree,
+# so retention must only touch renpy-*.tar.gz files.
+ssh "${SSH_OPTS[@]}" "${REMOTE_USER}@${HOST}" \
+    "cd '${REMOTE_DIR}' && ls -1 renpy-*.tar.gz 2>/dev/null | sort | head -n -${KEEP_PACKAGES} | xargs -r rm -f --"
 
 echo "[5/5] Remote files"
-ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${REMOTE_USER}@${HOST}" "ls -lh '${REMOTE_DIR}'"
+ssh "${SSH_OPTS[@]}" "${REMOTE_USER}@${HOST}" "ls -lh '${REMOTE_DIR}'"
 
 echo "Deployment complete."
