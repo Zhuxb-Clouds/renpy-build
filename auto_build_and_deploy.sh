@@ -4,6 +4,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# uv (and other per-user tools) live outside the default PATH of
+# non-interactive shells, e.g. when the script is run under nohup/ssh.
+export PATH="$HOME/.local/bin:$PATH"
+
 HOST="${HOST:-192.168.122.1}"
 REMOTE_USER="${REMOTE_USER:-zhuxb}"
 REMOTE_DIR="${REMOTE_DIR:-/home/${REMOTE_USER}/renpy-dev}"
