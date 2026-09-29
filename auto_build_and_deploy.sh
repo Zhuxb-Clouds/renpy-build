@@ -75,9 +75,14 @@ echo "[2/5] Packing build outputs into $(basename "$PACKAGE_FILE")"
 rm -f "$PACKAGE_FILE"
 # Exclude patterns must match the member names as stored in the archive
 # (relative to -C "$ROOT"). renpy/tmp (generated cython sources and build
-# intermediates) is not shipped in the official SDK either.
+# intermediates) and the developer-only files below are not shipped in
+# the official SDK either.
 tar --exclude="renpy/.git" --exclude="renpy/.venv" --exclude="renpy/.vscode" \
     --exclude="renpy/tmp" \
+    --exclude="renpy/.github" --exclude="renpy/.devcontainer" \
+    --exclude="renpy/.git-blame-ignore-revs" \
+    --exclude="renpy/scripts" --exclude="renpy/distribute.py" \
+    --exclude="renpy/7z.sfx" \
     -C "$ROOT" -czf "$PACKAGE_FILE" renpy
 
 if [[ ! -f "$PACKAGE_FILE" ]]; then
