@@ -59,6 +59,9 @@ from . import angle
 from . import steam
 
 from . import librenpy
+
+from . import nativedialog
+
 from . import pythonlib
 from . import renpython
 

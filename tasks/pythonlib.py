@@ -202,6 +202,8 @@ ordlookup/
 
 steamapi
 
+nativedialog
+
 brotli
 """
 
