@@ -77,7 +77,7 @@ rm -f "$PACKAGE_FILE"
 # (relative to -C "$ROOT"). renpy/tmp (generated cython sources and build
 # intermediates) and the developer-only files below are not shipped in
 # the official SDK either.
-tar --exclude="renpy/.git" --exclude="renpy/.venv" --exclude="renpy/.vscode" \
+tar --exclude="renpy/.git" --exclude="renpy/.gitignore" --exclude="renpy/.venv" --exclude="renpy/.vscode" \
     --exclude="renpy/tmp" \
     --exclude="renpy/.github" --exclude="renpy/.devcontainer" \
     --exclude="renpy/.git-blame-ignore-revs" \
